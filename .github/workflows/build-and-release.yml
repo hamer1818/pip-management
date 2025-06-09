@@ -40,6 +40,9 @@ jobs:
         pip list
     
     - name: 🔨 Build Executable
+      env:
+        PYTHONIOENCODING: utf-8
+        PYTHONLEGACYWINDOWSSTDIO: utf-8
       run: |
         python build_exe.py
     
@@ -47,9 +50,9 @@ jobs:
       run: |
         if (Test-Path "dist/ModernPipManager.exe") {
           $size = (Get-Item "dist/ModernPipManager.exe").Length / 1MB
-          Write-Host "📏 Exe boyutu: $([math]::Round($size, 2)) MB"
+          Write-Host "[INFO] Exe boyutu: $([math]::Round($size, 2)) MB"
         } else {
-          Write-Host "❌ Exe dosyası bulunamadı!"
+          Write-Host "[ERROR] Exe dosyasi bulunamadi!"
           exit 1
         }
     
@@ -127,7 +130,7 @@ jobs:
     steps:
     - name: 📊 Show Build Summary
       run: |
-        echo "🎉 Build completed successfully!"
-        echo "📦 Executable created for Windows"
-        echo "🔗 Release created with tag: ${{ needs.build-windows.outputs.VERSION }}"
-        echo "📁 Artifacts uploaded to GitHub" 
+        echo "[SUCCESS] Build completed successfully!"
+        echo "[INFO] Executable created for Windows"
+        echo "[INFO] Release created with tag: ${{ needs.build-windows.outputs.VERSION }}"
+        echo "[INFO] Artifacts uploaded to GitHub" 

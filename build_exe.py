@@ -43,8 +43,8 @@ def build_exe():
     if not os.path.exists("icon.ico"):
         pyinstaller_args = [arg for arg in pyinstaller_args if not arg.startswith('--icon')]
     
-    print("🔨 PyInstaller ile exe dosyası oluşturuluyor...")
-    print(f"Parametreler: {' '.join(pyinstaller_args)}")
+    print("[BUILD] PyInstaller ile exe dosyasi olusturuluyor...")
+    print(f"[BUILD] Parametreler: {' '.join(pyinstaller_args)}")
     
     try:
         # PyInstaller'ı çalıştır
@@ -54,26 +54,26 @@ def build_exe():
         exe_path = Path("dist/ModernPipManager.exe")
         if exe_path.exists():
             size_mb = exe_path.stat().st_size / (1024 * 1024)
-            print(f"✅ Exe dosyası başarıyla oluşturuldu!")
-            print(f"📁 Konum: {exe_path.absolute()}")
-            print(f"📏 Boyut: {size_mb:.1f} MB")
+            print(f"[SUCCESS] Exe dosyasi basariyla olusturuldu!")
+            print(f"[INFO] Konum: {exe_path.absolute()}")
+            print(f"[INFO] Boyut: {size_mb:.1f} MB")
             return True
         else:
-            print("❌ Exe dosyası oluşturulamadı!")
+            print("[ERROR] Exe dosyasi olusturulamadi!")
             return False
             
     except Exception as e:
-        print(f"❌ Build hatası: {e}")
+        print(f"[ERROR] Build hatasi: {e}")
         return False
 
 if __name__ == "__main__":
     # Gerekli paketlerin yüklü olup olmadığını kontrol et
     try:
         import PyInstaller
-        print(f"✅ PyInstaller sürümü: {PyInstaller.__version__}")
+        print(f"[INFO] PyInstaller surumu: {PyInstaller.__version__}")
     except ImportError:
-        print("❌ PyInstaller yüklü değil!")
-        print("Yüklemek için: pip install pyinstaller")
+        print("[ERROR] PyInstaller yuklu degil!")
+        print("[INFO] Yuklemek icin: pip install pyinstaller")
         sys.exit(1)
     
     # Build işlemini başlat
