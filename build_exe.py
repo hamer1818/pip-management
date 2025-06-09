@@ -27,14 +27,28 @@ def build_exe():
         '--name=ModernPipManager',      # Exe dosya adı
         '--icon=icon.ico',              # İkon dosyası (varsa)
         '--add-data=pip_manager;pip_manager',  # pip_manager klasörünü dahil et
+        '--add-data=version.py;.',      # version.py dosyasını dahil et
         '--hidden-import=ttkbootstrap', # Gizli import'ları dahil et
+        '--hidden-import=ttkbootstrap.themes',
+        '--hidden-import=ttkbootstrap.validation',
         '--hidden-import=tkinter',
+        '--hidden-import=tkinter.ttk',
+        '--hidden-import=tkinter.filedialog',
+        '--hidden-import=tkinter.messagebox',
         '--hidden-import=subprocess',
         '--hidden-import=threading',
         '--hidden-import=json',
         '--hidden-import=urllib',
+        '--hidden-import=urllib.request',
+        '--hidden-import=urllib.parse',
+        '--hidden-import=urllib.error',
         '--hidden-import=datetime',
+        '--hidden-import=multiprocessing',
+        '--hidden-import=sys',
+        '--hidden-import=os',
+        '--hidden-import=pathlib',
         '--collect-all=ttkbootstrap',   # ttkbootstrap'ın tüm dosyalarını dahil et
+        '--collect-all=PIL',            # Pillow'un tüm dosyalarını dahil et
         '--noconfirm',                  # Onay sorma
         '--clean',                      # Cache'i temizle
     ]

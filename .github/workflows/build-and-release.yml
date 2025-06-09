@@ -1,4 +1,4 @@
-name: 🚀 Build and Release
+name: "Build and Release"
 
 # Her push ve pull request'te çalış
 on:
@@ -11,126 +11,139 @@ on:
 permissions:
   contents: write
 
+env:
+  PYTHONIOENCODING: utf-8
+  PYTHONLEGACYWINDOWSSTDIO: utf-8
+
 jobs:
-  build-windows:
-    name: 🏗️ Windows Build
+  build:
     runs-on: windows-latest
     
     steps:
-    - name: 📂 Checkout Repository
+    - name: "Checkout code"
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    
-    - name: 🐍 Setup Python
+      
+    - name: "Set up Python"
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
-    
-    - name: 📦 Install Dependencies
+        python-version: '3.13'
+        
+    - name: "Cache dependencies"
+      uses: actions/cache@v3
+      with:
+        path: ~\AppData\Local\pip\Cache
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: "Install dependencies"
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install pyinstaller
-    
-    - name: 📋 Show Environment Info
+        
+    - name: "Generate version info"
       run: |
-        python --version
-        pip --version
-        pip list
-    
-    - name: 🔨 Build Executable
-      env:
-        PYTHONIOENCODING: utf-8
-        PYTHONLEGACYWINDOWSSTDIO: utf-8
-      run: |
-        python build_exe.py
-    
-    - name: 📏 Check Build Size
-      run: |
-        if (Test-Path "dist/ModernPipManager.exe") {
-          $size = (Get-Item "dist/ModernPipManager.exe").Length / 1MB
-          Write-Host "[INFO] Exe boyutu: $([math]::Round($size, 2)) MB"
-        } else {
-          Write-Host "[ERROR] Exe dosyasi bulunamadi!"
-          exit 1
-        }
-    
-    - name: 📅 Generate Version
-      id: version
-      run: |
+        $commit = "${{ github.sha }}".Substring(0,7)
         $date = Get-Date -Format "yyyy.MM.dd"
         $time = Get-Date -Format "HHmm"
-        $commit = "${{ github.sha }}".Substring(0,7)
         $version = "v$date-$time-$commit"
-        echo "VERSION=$version" >> $env:GITHUB_OUTPUT
-        echo "Generated version: $version"
-    
-    - name: 📦 Create Release Archive
+        
+        echo "BUILD_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        echo "[INFO] Build version: $version"
+        
+    - name: "Update version.py"
       run: |
-        # Exe dosyasını zip'le
-        Compress-Archive -Path "dist/ModernPipManager.exe" -DestinationPath "ModernPipManager-Windows.zip"
+        $content = @"
+        # Modern Python Pip Paket Yonetcisi Version Bilgileri
+        # Author: Hamza ORTATEPE
+        # Email: hamzaortatepe@hotmail.com
+        # Build Date: $(Get-Date -Format "yyyy-MM-dd")
         
-        # Release notları oluştur
-        @"
-        # 🚀 Modern Python Pip Paket Yöneticisi - ${{ steps.version.outputs.VERSION }}
+        __version__ = "$env:BUILD_VERSION"
+        __app_name__ = "Modern Python Pip Paket Yoneticisi"
+        __author__ = "Hamza ORTATEPE"
+        __email__ = "hamzaortatepe@hotmail.com"
+        __build_date__ = "$(Get-Date -Format "yyyy-MM-dd")"
+        __description__ = "Modern Python pip paket yonetcisi - ttkbootstrap ile GUI"
+        "@
         
-        ## 📥 İndirme
-        - **Windows Executable**: ModernPipManager-Windows.zip (Windows 10/11)
+        $content | Out-File -FilePath "version.py" -Encoding utf8
+        echo "[INFO] Version bilgisi guncellendi"
         
-        ## 🔧 Kullanım
-        1. Zip dosyasını indirin
-        2. Zip'i açın
-        3. ModernPipManager.exe'yi çalıştırın
+    - name: "Build executable"
+      run: |
+        echo "[BUILD] Exe dosyasi olusturuluyor..."
+        python build_exe.py
         
-        ## ✨ Bu Sürümde
-        - Modern ttkbootstrap tema entegrasyonu
-        - Bootstrap renk paletiyle butonlar
-        - Gelişmiş kullanıcı arayüzü
-        - Paket yönetimi özellikleri
+    - name: "Verify build"
+      run: |
+        if (Test-Path "dist\ModernPipManager.exe") {
+            $size = (Get-Item "dist\ModernPipManager.exe").Length / 1MB
+            echo "[SUCCESS] Build basarili - Boyut: $([math]::Round($size, 1)) MB"
+        } else {
+            echo "[ERROR] Build basarisiz!"
+            exit 1
+        }
         
-        ## 🐛 Sorun Bildirimi
-        Herhangi bir sorunla karşılaştığınızda [Issues](https://github.com/${{ github.repository }}/issues) sayfasından bildirebilirsiniz.
+    - name: "Create release package"
+      run: |
+        mkdir release
+        copy "dist\ModernPipManager.exe" "release\"
+        copy "README.md" "release\" -ErrorAction SilentlyContinue
+        copy "version.py" "release\"
         
-        ---
-        **Commit**: ${{ github.sha }}  
-        **Build Date**: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss") UTC  
-        **Python Version**: $(python --version)
-        "@ | Out-File -FilePath "RELEASE_NOTES.md" -Encoding UTF8
-    
-    - name: 🎉 Create GitHub Release
+        echo "[SUCCESS] Release paketi hazir"
+        
+    - name: "Upload build artifacts"
+      uses: actions/upload-artifact@v4
+      with:
+        name: ModernPipManager-${{ env.BUILD_VERSION }}
+        path: release/
+        retention-days: 30
+        
+    - name: "Create GitHub Release"
+      if: github.event_name == 'push'
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ steps.version.outputs.VERSION }}
-        name: "🚀 Release ${{ steps.version.outputs.VERSION }}"
-        body_path: RELEASE_NOTES.md
+        tag_name: ${{ env.BUILD_VERSION }}
+        name: "Modern Pip Manager ${{ env.BUILD_VERSION }}"
+        body: |
+          [SUCCESS] Modern Python Pip Paket Yoneticisi - Yeni Surum
+          
+          Ozellikleri:
+          - Modern ttkbootstrap arayuzu
+          - Paket arama ve yukleme
+          - Paket guncelleme ve kaldirma
+          - Requirements.txt yonetimi
+          - Otomatik paket boyut hesaplama
+          
+          [INFO] Build Bilgileri:
+          - Surum: ${{ env.BUILD_VERSION }}
+          - Build Tarihi: ${{ github.event.head_commit.timestamp }}
+          - Commit: ${{ github.sha }}
+          
+          [INFO] Kullanim:
+          1. ModernPipManager.exe dosyasini indirin
+          2. Herhangi bir klasore kaydedin
+          3. Cift tikla calistirin
+          
+          Gereksinimler: Windows 10/11
         files: |
-          ModernPipManager-Windows.zip
           dist/ModernPipManager.exe
         draft: false
         prerelease: false
-        generate_release_notes: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    
-    - name: 📊 Upload Build Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: windows-executable
-        path: |
-          dist/ModernPipManager.exe
-          ModernPipManager-Windows.zip
-        retention-days: 30
+        token: ${{ secrets.GITHUB_TOKEN }}
 
   build-info:
     name: 📋 Build Information
     runs-on: ubuntu-latest
-    needs: build-windows
+    needs: build
     
     steps:
     - name: 📊 Show Build Summary
       run: |
         echo "[SUCCESS] Build completed successfully!"
         echo "[INFO] Executable created for Windows"
-        echo "[INFO] Release created with tag: ${{ needs.build-windows.outputs.VERSION }}"
+        echo "[INFO] Release created with tag: ${{ env.BUILD_VERSION }}"
         echo "[INFO] Artifacts uploaded to GitHub" 
