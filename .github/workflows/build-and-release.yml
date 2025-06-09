@@ -23,7 +23,7 @@ jobs:
         fetch-depth: 0
     
     - name: 🐍 Setup Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
     
@@ -96,7 +96,7 @@ jobs:
         "@ | Out-File -FilePath "RELEASE_NOTES.md" -Encoding UTF8
     
     - name: 🎉 Create GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.version.outputs.VERSION }}
         name: "🚀 Release ${{ steps.version.outputs.VERSION }}"
@@ -111,7 +111,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     
     - name: 📊 Upload Build Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: windows-executable
         path: |
