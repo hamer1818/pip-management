@@ -1,5 +1,7 @@
+import ttkbootstrap as ttk
+from ttkbootstrap.constants import *
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import messagebox, filedialog
 import subprocess
 import threading
 import json
@@ -253,14 +255,14 @@ def show_package_details(app):
 
                 text_widget = tk.Text(detail_window, bg='#1e1e1e', fg='white', insertbackground='white',
                                     font=('Consolas', 10), wrap='word', relief='flat', borderwidth=0)
-                scrollbar = ttk.Scrollbar(detail_window, orient='vertical', command=text_widget.yview)
+                scrollbar = ttk.Scrollbar(detail_window, orient=VERTICAL, command=text_widget.yview)
                 text_widget.configure(yscrollcommand=scrollbar.set)
                 
                 text_widget.insert('1.0', result.stdout)
-                text_widget.config(state='disabled') 
+                text_widget.config(state=DISABLED) 
                 
-                text_widget.pack(side='left', fill='both', expand=True, padx=5, pady=5)
-                scrollbar.pack(side='right', fill='y')
+                text_widget.pack(side=LEFT, fill=BOTH, expand=True, padx=5, pady=5)
+                scrollbar.pack(side=RIGHT, fill=Y)
             
             if app.root.winfo_exists(): app.root.after(0, create_detail_window_fn)
             
@@ -286,10 +288,10 @@ def search_pypi_advanced(app):
         try:
             app.update_status(f"PyPI'da '{query}' aranıyor...")
             if app.detail_text.winfo_exists():
-                app.detail_text.config(state='normal')
+                app.detail_text.config(state=NORMAL)
                 app.detail_text.delete('1.0', 'end')
                 app.detail_text.insert('1.0', f"'{query}' için PyPI'da arama yapılıyor...\n")
-                app.detail_text.config(state='disabled')
+                app.detail_text.config(state=DISABLED)
 
             if app.search_tree.winfo_exists():
                 for item in app.search_tree.get_children():
@@ -314,7 +316,7 @@ def search_pypi_advanced(app):
                 app.log_message(f"'{query}' için PyPI JSON API ile sonuç bulundu: {info['name']}")
                 
                 if app.detail_text.winfo_exists():
-                    app.detail_text.config(state='normal')
+                    app.detail_text.config(state=NORMAL)
                     app.detail_text.delete('1.0', 'end')
                     app.detail_text.insert('1.0', f"Paket: {info['name']} v{info['version']}\n")
                     app.detail_text.insert('end', f"Geliştirici: {info.get('author', 'Bilinmiyor')}\n")
@@ -324,26 +326,26 @@ def search_pypi_advanced(app):
                     app.detail_text.insert('end', f"Özet:\n{info['summary']}\n\n")
                     if 'description' in info and info['description']:
                             app.detail_text.insert('end', f"Açıklama:\n{info['description'][:1000]}...\n") 
-                    app.detail_text.config(state='disabled')
+                    app.detail_text.config(state=DISABLED)
 
             except urllib.error.HTTPError: 
                 app.log_message(f"'{query}' için PyPI JSON API ile direkt eşleşme bulunamadı, 'pip index versions' deneniyor...")
                 if app.detail_text.winfo_exists():
-                    app.detail_text.config(state='normal')
+                    app.detail_text.config(state=NORMAL)
                     app.detail_text.insert('end', "Direkt eşleşme bulunamadı, alternatif arama deneniyor...\n")
-                    app.detail_text.config(state='disabled')
+                    app.detail_text.config(state=DISABLED)
             except urllib.error.URLError as e_url: 
                 app.log_message(f"PyPI JSON API'ye bağlanırken hata: {e_url}")
                 if app.detail_text.winfo_exists():
-                    app.detail_text.config(state='normal')
+                    app.detail_text.config(state=NORMAL)
                     app.detail_text.insert('end', f"PyPI'ye bağlanılamadı: {e_url}\nAlternatif arama deneniyor...\n")
-                    app.detail_text.config(state='disabled')
+                    app.detail_text.config(state=DISABLED)
             except json.JSONDecodeError:
                 app.log_message(f"PyPI JSON API'den gelen yanıt çözümlenemedi: {query}")
                 if app.detail_text.winfo_exists():
-                    app.detail_text.config(state='normal')
+                    app.detail_text.config(state=NORMAL)
                     app.detail_text.insert('end', f"PyPI'den gelen yanıt anlaşılamadı.\nAlternatif arama deneniyor...\n")
-                    app.detail_text.config(state='disabled')
+                    app.detail_text.config(state=DISABLED)
 
 
             if not api_hit or not app.search_tree.get_children(): 
@@ -367,16 +369,16 @@ def search_pypi_advanced(app):
                         ))
                     app.log_message(f"'{query}' (pip index ile) PyPI'da bulundu: {actual_name_match} v{latest_version}")
                     if app.detail_text.winfo_exists():
-                        app.detail_text.config(state='normal')
+                        app.detail_text.config(state=NORMAL)
                         app.detail_text.insert('end', f"'{actual_name_match}' paketi bulundu (Sürüm: {latest_version}). Daha fazla detay için paketi yükleyin.\n")
-                        app.detail_text.config(state='disabled')
+                        app.detail_text.config(state=DISABLED)
                 elif not app.search_tree.get_children(): 
                     error_detail = result.stderr.strip() if result.stderr else "Paket bulunamadı veya erişim hatası."
                     app.log_message(f"'{query}' için 'pip index versions' ile de sonuç bulunamadı: {error_detail}")
                     if app.detail_text.winfo_exists():
-                        app.detail_text.config(state='normal')
+                        app.detail_text.config(state=NORMAL)
                         app.detail_text.insert('end', f"'{query}' için arama sonucu bulunamadı.\n{error_detail}\n")
-                        app.detail_text.config(state='disabled')
+                        app.detail_text.config(state=DISABLED)
                     if app.root.winfo_exists(): messagebox.showinfo("Sonuç Yok", f"'{query}' için arama sonucu bulunamadı.", parent=app.root)
             
             app.update_status("Hazır")
@@ -386,9 +388,9 @@ def search_pypi_advanced(app):
             app.log_message(error_msg)
             app.update_status("Hata oluştu")
             if app.detail_text.winfo_exists():
-                app.detail_text.config(state='normal')
+                app.detail_text.config(state=NORMAL)
                 app.detail_text.insert('end', f"Arama sırasında bir hata oluştu: {str(e)}\n")
-                app.detail_text.config(state='disabled')
+                app.detail_text.config(state=DISABLED)
             if app.root.winfo_exists(): messagebox.showerror("Arama Hatası", error_msg, parent=app.root)
     
     thread = threading.Thread(target=search_thread_fn)
@@ -418,9 +420,9 @@ def on_search_select(app, event):
     package_name = item_values[0]
 
     if item_values and len(item_values) > 2 and "detaylar sınırlı" in item_values[2]:
-            app.detail_text.config(state='normal')
+            app.detail_text.config(state=NORMAL)
             app.detail_text.insert('1.0', f"--- Seçili: {package_name} v{item_values[1]} ---\nBu paket 'pip index' ile bulundu. Tam detaylar için paketi yükleyin.\n\n")
-            app.detail_text.config(state='disabled')
+            app.detail_text.config(state=DISABLED)
 
 def load_requirements(app):
     """Requirements.txt dosyası yükle"""
@@ -781,13 +783,12 @@ def install_with_options(app):
     
     s_options = ttk.Style(options_window) 
     s_options.configure('Options.TLabel', background='#2b2b2b', foreground='white', font=('Segoe UI', 10))
-    s_options.configure('Options.TCheckbutton', background='#2b2b2b', foreground='white', font=('Segoe UI', 9), indicatorcolor=app.accent_color) 
+    s_options.configure('Options.TCheckbutton', background='#2b2b2b', foreground='white', font=('Segoe UI', 9)) 
     s_options.map('Options.TCheckbutton',
-            background=[('active', '#404040')],
-            indicatorcolor=[('selected', app.accent_color), ('pressed', '#005a9e')])
+            background=[('active', '#404040')])
 
     s_options.configure('Options.TEntry', fieldbackground='#404040', foreground='white', insertcolor='white')
-    s_options.configure('Options.TButton', background=app.accent_color, foreground='white', padding=(8,4), font=('Segoe UI', 9))
+    s_options.configure('Options.TButton', background='#0078d4', foreground='white', padding=(8,4), font=('Segoe UI', 9))
     s_options.map('Options.TButton', background=[('active', '#106ebe')])
 
 
@@ -848,5 +849,5 @@ def install_with_options(app):
             parent_win = options_window if options_window.winfo_exists() else app.root
             messagebox.showerror("Seçenek Hatası", error_msg, parent=parent_win)
     
-    ttk.Button(button_frame_opt, text="Kur", command=do_install_package_fn, style='Options.TButton').pack(side='right', padx=5) 
-    ttk.Button(button_frame_opt, text="İptal", command=options_window.destroy, style='Options.TButton').pack(side='right', padx=5) 
+    ttk.Button(button_frame_opt, text="Kur", command=do_install_package_fn, style='Options.TButton').pack(side=RIGHT, padx=5) 
+    ttk.Button(button_frame_opt, text="İptal", command=options_window.destroy, style='Options.TButton').pack(side=RIGHT, padx=5) 

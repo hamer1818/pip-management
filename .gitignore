@@ -9,3 +9,14 @@ __pycache__/
 .env.production.local
 .env.development
 .env.test
+
+# PyInstaller build files
+build/
+dist/
+*.spec
+ModernPipManager.exe
+ModernPipManager-Windows.zip
+RELEASE_NOTES.md
+
+# Virtual environments
+.venv/

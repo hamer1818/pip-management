@@ -1,6 +1,8 @@
-import tkinter as tk
+import ttkbootstrap as ttk
+from ttkbootstrap.constants import *
 import os
 import sys
+from version import __version__, __app_name__
 
 # Windows'ta DPI farkındalığı için, eğer kütüphane varsa
 if os.name == 'nt':
@@ -14,22 +16,24 @@ from pip_manager.app import ModernPipManager
 
 def main():
     """Ana uygulama fonksiyonu"""
-    root = tk.Tk()
-    _app_instance = ModernPipManager(root) 
+    # ttkbootstrap stil teması ile uygulama oluştur
+    app = ttk.Window(
+        title=f"🐍 {__app_name__} v{__version__}",
+        themename="darkly",  # Modern dark tema
+        size=(1200, 800),
+        resizable=(True, True)
+    )
+    
+    _app_instance = ModernPipManager(app) 
     
     # Pencereyi ekranın ortasında başlat
-    root.update_idletasks()
-    width = root.winfo_width()
-    height = root.winfo_height()
-    x_main_pos = (root.winfo_screenwidth() // 2) - (width // 2) 
-    y_main_pos = (root.winfo_screenheight() // 2) - (height // 2) 
-    root.geometry(f'{width}x{height}+{x_main_pos}+{y_main_pos}')
+    app.place_window_center()
     
     # Minimum pencere boyutunu ayarla
-    root.minsize(1000, 700) 
+    app.minsize(1000, 700) 
     
-    # Tkinter ana döngüsünü başlat
-    root.mainloop()
+    # Ana döngüyü başlat
+    app.mainloop()
 
 if __name__ == "__main__":
     main()
