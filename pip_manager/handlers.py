@@ -1,5 +1,7 @@
+import ttkbootstrap as ttk
+from ttkbootstrap.constants import *
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import messagebox, filedialog
 import subprocess
 import threading
 import json
@@ -11,6 +13,64 @@ import urllib.parse
 import urllib.error
 from . import utils
 
+# Subprocess constants import'u Windows için
+if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP'):
+    pass  # Already available
+else:
+    # Fallback for non-Windows systems
+    subprocess.CREATE_NEW_PROCESS_GROUP = 0x00000200
+
+# PyInstaller exe dosyası için subprocess ayarları - RESTART LOOP FIX
+def get_subprocess_args():
+    """PyInstaller ile oluşturulan exe dosyası için subprocess parametrelerini döndür"""
+    base_args = {}
+    
+    # Windows subprocess güvenliği - RESTART LOOP FIX
+    if os.name == 'nt':  # Windows
+        # CRITICAL: Subprocess'lerin ana exe'yi tetiklememesi için
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        
+        base_args.update({
+            'creationflags': (
+                subprocess.CREATE_NO_WINDOW | 
+                subprocess.CREATE_NEW_PROCESS_GROUP |
+                subprocess.DETACHED_PROCESS if hasattr(subprocess, 'DETACHED_PROCESS') else 0
+            ),
+            'startupinfo': startupinfo,
+            'close_fds': True,  # CRITICAL: File descriptor'ları kapat
+        })
+    else:
+        # Unix/Linux için
+        base_args.update({
+            'close_fds': True,
+            'preexec_fn': os.setsid if hasattr(os, 'setsid') else None
+        })
+    
+    # PyInstaller exe için CRITICAL düzeltmeler
+    if getattr(sys, 'frozen', False):
+        # Exe dosyası olarak çalışıyoruz - ekstra güvenlik
+        env = os.environ.copy()
+        
+        # CRITICAL: Python path'ini sadece system python'a yönlendir
+        # Bu restart loop'un ana sebeplerinden biri
+        if 'PYTHONPATH' in env:
+            del env['PYTHONPATH']  
+        
+        # PyInstaller'ın kendi path'ını çıkar
+        if 'PATH' in env:
+            paths = env['PATH'].split(os.pathsep)
+            paths = [p for p in paths if not ('_MEI' in p or 'dist' in p.lower())]
+            env['PATH'] = os.pathsep.join(paths)
+        
+        base_args.update({
+            'env': env,
+            'cwd': os.path.dirname(sys.executable) if hasattr(sys, 'frozen') else os.getcwd()
+        })
+    
+    return base_args
+
 def run_pip_command(app, command, success_msg="İşlem tamamlandı", show_output=True, callback=None):
     """Pip komutunu çalıştır ve isteğe bağlı callback çağır."""
     def run_command_thread():
@@ -20,7 +80,16 @@ def run_pip_command(app, command, success_msg="İşlem tamamlandı", show_output
             app.update_status("İşlem devam ediyor...")
             app.log_message(f"Komut çalıştırılıyor: {' '.join(command)}")
             
-            result = subprocess.run(command, capture_output=True, text=True, check=False, encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0) 
+            # PyInstaller exe için özel subprocess ayarları
+            subprocess_kwargs = get_subprocess_args()
+            subprocess_kwargs.update({
+                'capture_output': True, 
+                'text': True, 
+                'check': False, 
+                'encoding': 'utf-8'
+            })
+            
+            result = subprocess.run(command, **subprocess_kwargs)
             output_data = result.stdout if result.stdout else ""
             if result.stderr:
                 output_data += ("\nStderr: " + result.stderr)
@@ -30,7 +99,7 @@ def run_pip_command(app, command, success_msg="İşlem tamamlandı", show_output
                 error_msg_detail = f"Hata ({command[3] if len(command)>3 else 'pip'}): {error_output}"
                 app.log_message(error_msg_detail)
                 app.update_status("Hata oluştu")
-                if app.root.winfo_exists(): 
+                if app.root and app.root.winfo_exists(): 
                         messagebox.showerror("Pip Hatası", error_msg_detail, parent=app.root)
             else:
                 if show_output and result.stdout:
@@ -40,42 +109,50 @@ def run_pip_command(app, command, success_msg="İşlem tamamlandı", show_output
                 success = True
             
             if any(cmd_part in command for cmd_part in ['install', 'uninstall', 'upgrade']):
-                if app.root.winfo_exists():
+                if app.root and app.root.winfo_exists():
                     app.root.after(100, app.refresh_installed_packages) 
             
         except subprocess.CalledProcessError as e:
             error_msg = f"Komut Hatası: {e.stderr if e.stderr else str(e)}"
             app.log_message(error_msg)
             app.update_status("Hata oluştu")
-            if app.root.winfo_exists(): messagebox.showerror("Komut Hatası", error_msg, parent=app.root)
+            if app.root and app.root.winfo_exists(): messagebox.showerror("Komut Hatası", error_msg, parent=app.root)
         except FileNotFoundError:
             error_msg = f"Hata: Pip veya Python bulunamadı. Lütfen PATH ayarlarınızı kontrol edin."
             app.log_message(error_msg)
             app.update_status("Kritik Hata")
-            if app.root.winfo_exists(): messagebox.showerror("Kritik Hata", error_msg, parent=app.root)
+            if app.root and app.root.winfo_exists(): messagebox.showerror("Kritik Hata", error_msg, parent=app.root)
         except Exception as e:
             error_msg = f"Beklenmeyen hata ({' '.join(command[:4])}...): {str(e)}"
             app.log_message(error_msg)
             app.update_status("Hata oluştu")
-            if app.root.winfo_exists(): messagebox.showerror("Beklenmeyen Hata", error_msg, parent=app.root)
+            if app.root and app.root.winfo_exists(): messagebox.showerror("Beklenmeyen Hata", error_msg, parent=app.root)
         finally:
             if callback:
-                if app.root.winfo_exists():
+                if app.root and app.root.winfo_exists():
                     app.root.after(0, lambda: callback(success, output_data))
                 else: 
                     callback(success, output_data)
 
-    thread = threading.Thread(target=run_command_thread)
-    thread.daemon = True
+    # Thread'i daemon olarak başlat ki ana uygulama kapanınca otomatik kapansın
+    thread = threading.Thread(target=run_command_thread, daemon=True)
     thread.start()
+
+def safe_subprocess_run(command, **kwargs):
+    """Güvenli subprocess çağrısı - PyInstaller uyumlu"""
+    subprocess_kwargs = get_subprocess_args()
+    subprocess_kwargs.update(kwargs)
+    return subprocess.run(command, **subprocess_kwargs)
 
 def refresh_installed_packages(app):
     """Yüklü paketleri ve boyutlarını yenile"""
     def refresh_thread(): 
         app.update_status("Yüklü paketler listeleniyor...")
         try:
-            result = subprocess.run([sys.executable, '-m', 'pip', 'list', '--format=json'], 
-                                    capture_output=True, text=True, check=True, encoding='utf-8',creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+            result = safe_subprocess_run(
+                [sys.executable, '-m', 'pip', 'list', '--format=json'],
+                capture_output=True, text=True, check=True, encoding='utf-8'
+            )
             
             packages_data = json.loads(result.stdout)
             new_installed_packages = {pkg['name']: pkg['version'] for pkg in packages_data}
@@ -95,32 +172,31 @@ def refresh_installed_packages(app):
                 app.log_message(f"{len(app.installed_packages)} paket listelendi. Boyutlar hesaplanıyor...")
                 app.update_status("Paket boyutları hesaplanıyor...")
                 
-                thread_calc_sizes = threading.Thread(target=calculate_package_sizes_thread, args=(list(app.installed_packages.keys()),))
-                thread_calc_sizes.daemon = True
+                thread_calc_sizes = threading.Thread(target=calculate_package_sizes_thread, args=(list(app.installed_packages.keys()),), daemon=True)
                 thread_calc_sizes.start()
 
-            if app.root.winfo_exists():
+            if app.root and app.root.winfo_exists():
                 app.root.after(0, update_gui_phase1)
 
         except subprocess.CalledProcessError as e:
             error_msg = f"Paketler yüklenirken pip hatası: {e.stderr}"
             app.log_message(error_msg)
             app.update_status("Hata oluştu")
-            if app.root.winfo_exists(): messagebox.showerror("Pip Hatası", error_msg, parent=app.root)
+            if app.root and app.root.winfo_exists(): messagebox.showerror("Pip Hatası", error_msg, parent=app.root)
         except Exception as e:
             error_msg = f"Paketler yüklenirken hata: {str(e)}"
             app.log_message(error_msg)
             app.update_status("Hata oluştu")
-            if app.root.winfo_exists(): messagebox.showerror("Genel Hata", error_msg, parent=app.root)
+            if app.root and app.root.winfo_exists(): messagebox.showerror("Genel Hata", error_msg, parent=app.root)
 
     def calculate_package_sizes_thread(package_names_list):
         for i, name in enumerate(package_names_list):
-            if not app.root.winfo_exists(): break 
+            if not app.root or not app.root.winfo_exists(): break 
             size_str = "Bilinmiyor"
             try:
-                show_result = subprocess.run(
+                show_result = safe_subprocess_run(
                     [sys.executable, '-m', 'pip', 'show', '--files', name],
-                    capture_output=True, text=True, check=False, encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                    capture_output=True, text=True, check=False, encoding='utf-8'
                 )
                 if show_result.returncode != 0:
                     size_str = "Hata (show)"
@@ -148,40 +224,30 @@ def refresh_installed_packages(app):
             except Exception: size_str = "Hata (boyut)"
 
             def update_gui_size(pkg_name_to_update, final_size_str):
-                if app.installed_tree.winfo_exists() and app.installed_tree.exists(pkg_name_to_update):
+                if app.installed_tree and app.installed_tree.winfo_exists() and app.installed_tree.exists(pkg_name_to_update):
                     current_values = list(app.installed_tree.item(pkg_name_to_update, 'values'))
                     current_values[4] = final_size_str
                     app.installed_tree.item(pkg_name_to_update, values=tuple(current_values))
             
-            if app.root.winfo_exists():
+            if app.root and app.root.winfo_exists():
                 app.root.after(0, lambda n=name, s=size_str: update_gui_size(n, s))
             
             if (i + 1) % 5 == 0: 
-                if app.root.winfo_exists():
+                if app.root and app.root.winfo_exists():
                         app.root.after(0, lambda: app.update_status(f"Boyutlar hesaplanıyor... ({i+1}/{len(package_names_list)})"))
         
-        if app.root.winfo_exists():
+        if app.root and app.root.winfo_exists():
             app.root.after(0, lambda: (app.log_message("Paket boyutları hesaplandı."), app.update_status("Hazır")))
     
-    main_refresh_thread = threading.Thread(target=refresh_thread)
-    main_refresh_thread.daemon = True
+    main_refresh_thread = threading.Thread(target=refresh_thread, daemon=True)
     main_refresh_thread.start()
 
 def filter_installed_packages(app, *args):
     """Yüklü paketleri filtrele (Arama kutusuna göre)"""
-    if not hasattr(app, 'installed_tree') or not app.installed_tree.winfo_exists():
+    if not hasattr(app, 'installed_tree') or not app.installed_tree or not app.installed_tree.winfo_exists():
         return
     
     search_term = app.search_var.get().lower()
-    
-    for item_id in app.installed_tree.get_children(''):
-        values = app.installed_tree.item(item_id, 'values')
-        item_text = values[0].lower()
-        if search_term in item_text:
-            # Item should be visible, ensure it's not detached
-            # This is tricky without knowing what's currently attached/detached.
-            # A simpler way is to re-insert all matching items.
-            pass # For now, let's try a different approach.
     
     all_items = {item_id: app.installed_tree.item(item_id, 'values') for item_id in app.installed_tree.get_children('')}
 
@@ -196,7 +262,7 @@ def filter_installed_packages(app, *args):
 
 def get_selected_package(app, tree):
     """Seçili paketi al (Treeview'den)"""
-    if not tree.winfo_exists(): return None
+    if not tree or not tree.winfo_exists(): return None
     selection = tree.selection()
     if not selection:
         return None
@@ -237,12 +303,14 @@ def show_package_details(app):
     def get_details_thread(): 
         try:
             app.update_status(f"'{package_name}' detayları alınıyor...")
-            result = subprocess.run([sys.executable, '-m', 'pip', 'show', package_name], 
-                                    capture_output=True, text=True, check=True, encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+            result = safe_subprocess_run(
+                [sys.executable, '-m', 'pip', 'show', package_name],
+                capture_output=True, text=True, check=True, encoding='utf-8'
+            )
             app.update_status("Hazır")
             
             def create_detail_window_fn(): 
-                if not app.root.winfo_exists(): return
+                if not app.root or not app.root.winfo_exists(): return
 
                 detail_window = tk.Toplevel(app.root)
                 detail_window.title(f"{package_name} - Paket Detayları")
@@ -253,26 +321,28 @@ def show_package_details(app):
 
                 text_widget = tk.Text(detail_window, bg='#1e1e1e', fg='white', insertbackground='white',
                                     font=('Consolas', 10), wrap='word', relief='flat', borderwidth=0)
-                scrollbar = ttk.Scrollbar(detail_window, orient='vertical', command=text_widget.yview)
+                scrollbar = ttk.Scrollbar(detail_window, orient=VERTICAL, command=text_widget.yview)
                 text_widget.configure(yscrollcommand=scrollbar.set)
                 
                 text_widget.insert('1.0', result.stdout)
-                text_widget.config(state='disabled') 
+                text_widget.config(state=DISABLED) 
                 
-                text_widget.pack(side='left', fill='both', expand=True, padx=5, pady=5)
-                scrollbar.pack(side='right', fill='y')
+                text_widget.pack(side=LEFT, fill=BOTH, expand=True, padx=5, pady=5)
+                scrollbar.pack(side=RIGHT, fill=Y)
             
-            if app.root.winfo_exists(): app.root.after(0, create_detail_window_fn)
+            if app.root and app.root.winfo_exists(): 
+                app.root.after(0, create_detail_window_fn)
             
         except subprocess.CalledProcessError as e:
             app.update_status("Hata oluştu")
-            if app.root.winfo_exists(): messagebox.showerror("Hata", f"'{package_name}' için detaylar alınamadı: {e.stderr}", parent=app.root)
+            if app.root and app.root.winfo_exists(): 
+                messagebox.showerror("Hata", f"'{package_name}' için detaylar alınamadı: {e.stderr}", parent=app.root)
         except Exception as e:
             app.update_status("Hata oluştu")
-            if app.root.winfo_exists(): messagebox.showerror("Hata", f"Detaylar alınırken beklenmeyen hata: {str(e)}", parent=app.root)
+            if app.root and app.root.winfo_exists(): 
+                messagebox.showerror("Hata", f"Detaylar alınırken beklenmeyen hata: {str(e)}", parent=app.root)
     
-    thread = threading.Thread(target=get_details_thread)
-    thread.daemon = True
+    thread = threading.Thread(target=get_details_thread, daemon=True)
     thread.start()
 
 def search_pypi_advanced(app): 
@@ -286,10 +356,10 @@ def search_pypi_advanced(app):
         try:
             app.update_status(f"PyPI'da '{query}' aranıyor...")
             if app.detail_text.winfo_exists():
-                app.detail_text.config(state='normal')
+                app.detail_text.config(state=NORMAL)
                 app.detail_text.delete('1.0', 'end')
                 app.detail_text.insert('1.0', f"'{query}' için PyPI'da arama yapılıyor...\n")
-                app.detail_text.config(state='disabled')
+                app.detail_text.config(state=DISABLED)
 
             if app.search_tree.winfo_exists():
                 for item in app.search_tree.get_children():
@@ -314,7 +384,7 @@ def search_pypi_advanced(app):
                 app.log_message(f"'{query}' için PyPI JSON API ile sonuç bulundu: {info['name']}")
                 
                 if app.detail_text.winfo_exists():
-                    app.detail_text.config(state='normal')
+                    app.detail_text.config(state=NORMAL)
                     app.detail_text.delete('1.0', 'end')
                     app.detail_text.insert('1.0', f"Paket: {info['name']} v{info['version']}\n")
                     app.detail_text.insert('end', f"Geliştirici: {info.get('author', 'Bilinmiyor')}\n")
@@ -324,31 +394,33 @@ def search_pypi_advanced(app):
                     app.detail_text.insert('end', f"Özet:\n{info['summary']}\n\n")
                     if 'description' in info and info['description']:
                             app.detail_text.insert('end', f"Açıklama:\n{info['description'][:1000]}...\n") 
-                    app.detail_text.config(state='disabled')
+                    app.detail_text.config(state=DISABLED)
 
             except urllib.error.HTTPError: 
                 app.log_message(f"'{query}' için PyPI JSON API ile direkt eşleşme bulunamadı, 'pip index versions' deneniyor...")
                 if app.detail_text.winfo_exists():
-                    app.detail_text.config(state='normal')
+                    app.detail_text.config(state=NORMAL)
                     app.detail_text.insert('end', "Direkt eşleşme bulunamadı, alternatif arama deneniyor...\n")
-                    app.detail_text.config(state='disabled')
+                    app.detail_text.config(state=DISABLED)
             except urllib.error.URLError as e_url: 
                 app.log_message(f"PyPI JSON API'ye bağlanırken hata: {e_url}")
                 if app.detail_text.winfo_exists():
-                    app.detail_text.config(state='normal')
+                    app.detail_text.config(state=NORMAL)
                     app.detail_text.insert('end', f"PyPI'ye bağlanılamadı: {e_url}\nAlternatif arama deneniyor...\n")
-                    app.detail_text.config(state='disabled')
+                    app.detail_text.config(state=DISABLED)
             except json.JSONDecodeError:
                 app.log_message(f"PyPI JSON API'den gelen yanıt çözümlenemedi: {query}")
                 if app.detail_text.winfo_exists():
-                    app.detail_text.config(state='normal')
+                    app.detail_text.config(state=NORMAL)
                     app.detail_text.insert('end', f"PyPI'den gelen yanıt anlaşılamadı.\nAlternatif arama deneniyor...\n")
-                    app.detail_text.config(state='disabled')
+                    app.detail_text.config(state=DISABLED)
 
 
             if not api_hit or not app.search_tree.get_children(): 
-                result = subprocess.run([sys.executable, '-m', 'pip', 'index', 'versions', query], 
-                                        capture_output=True, text=True, encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+                result = safe_subprocess_run(
+                    [sys.executable, '-m', 'pip', 'index', 'versions', query],
+                    capture_output=True, text=True, encoding='utf-8'
+                )
                 
                 if result.returncode == 0 and result.stdout.strip():
                     lines = result.stdout.strip().splitlines()
@@ -367,17 +439,17 @@ def search_pypi_advanced(app):
                         ))
                     app.log_message(f"'{query}' (pip index ile) PyPI'da bulundu: {actual_name_match} v{latest_version}")
                     if app.detail_text.winfo_exists():
-                        app.detail_text.config(state='normal')
+                        app.detail_text.config(state=NORMAL)
                         app.detail_text.insert('end', f"'{actual_name_match}' paketi bulundu (Sürüm: {latest_version}). Daha fazla detay için paketi yükleyin.\n")
-                        app.detail_text.config(state='disabled')
+                        app.detail_text.config(state=DISABLED)
                 elif not app.search_tree.get_children(): 
                     error_detail = result.stderr.strip() if result.stderr else "Paket bulunamadı veya erişim hatası."
                     app.log_message(f"'{query}' için 'pip index versions' ile de sonuç bulunamadı: {error_detail}")
                     if app.detail_text.winfo_exists():
-                        app.detail_text.config(state='normal')
+                        app.detail_text.config(state=NORMAL)
                         app.detail_text.insert('end', f"'{query}' için arama sonucu bulunamadı.\n{error_detail}\n")
-                        app.detail_text.config(state='disabled')
-                    if app.root.winfo_exists(): messagebox.showinfo("Sonuç Yok", f"'{query}' için arama sonucu bulunamadı.", parent=app.root)
+                        app.detail_text.config(state=DISABLED)
+                    if app.root and app.root.winfo_exists(): messagebox.showinfo("Sonuç Yok", f"'{query}' için arama sonucu bulunamadı.", parent=app.root)
             
             app.update_status("Hazır")
             
@@ -386,13 +458,12 @@ def search_pypi_advanced(app):
             app.log_message(error_msg)
             app.update_status("Hata oluştu")
             if app.detail_text.winfo_exists():
-                app.detail_text.config(state='normal')
+                app.detail_text.config(state=NORMAL)
                 app.detail_text.insert('end', f"Arama sırasında bir hata oluştu: {str(e)}\n")
-                app.detail_text.config(state='disabled')
-            if app.root.winfo_exists(): messagebox.showerror("Arama Hatası", error_msg, parent=app.root)
+                app.detail_text.config(state=DISABLED)
+            if app.root and app.root.winfo_exists(): messagebox.showerror("Arama Hatası", error_msg, parent=app.root)
     
-    thread = threading.Thread(target=search_thread_fn)
-    thread.daemon = True
+    thread = threading.Thread(target=search_thread_fn, daemon=True)
     thread.start()
 
 def install_selected_from_search(app): 
@@ -418,9 +489,9 @@ def on_search_select(app, event):
     package_name = item_values[0]
 
     if item_values and len(item_values) > 2 and "detaylar sınırlı" in item_values[2]:
-            app.detail_text.config(state='normal')
+            app.detail_text.config(state=NORMAL)
             app.detail_text.insert('1.0', f"--- Seçili: {package_name} v{item_values[1]} ---\nBu paket 'pip index' ile bulundu. Tam detaylar için paketi yükleyin.\n\n")
-            app.detail_text.config(state='disabled')
+            app.detail_text.config(state=DISABLED)
 
 def load_requirements(app):
     """Requirements.txt dosyası yükle"""
@@ -493,10 +564,12 @@ def generate_requirements(app):
     def generate_thread_fn(): 
         try:
             app.update_status("Requirements.txt oluşturuluyor...")
-            result = subprocess.run([sys.executable, '-m', 'pip', 'freeze'], 
-                                    capture_output=True, text=True, check=True, encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+            result = safe_subprocess_run(
+                [sys.executable, '-m', 'pip', 'freeze'],
+                capture_output=True, text=True, check=True, encoding='utf-8'
+            )
             
-            if app.req_text.winfo_exists():
+            if app.req_text and app.req_text.winfo_exists():
                 app.req_text.delete('1.0', 'end')
                 app.req_text.insert('1.0', result.stdout)
             app.log_message("Mevcut paketlerden Requirements.txt oluşturuldu.")
@@ -504,13 +577,12 @@ def generate_requirements(app):
             
         except subprocess.CalledProcessError as e:
             app.update_status("Hata oluştu")
-            if app.root.winfo_exists(): messagebox.showerror("Pip Hatası", f"Requirements oluşturulamadı: {e.stderr}", parent=app.root)
+            if app.root and app.root.winfo_exists(): messagebox.showerror("Pip Hatası", f"Requirements oluşturulamadı: {e.stderr}", parent=app.root)
         except Exception as e:
             app.update_status("Hata oluştu")
-            if app.root.winfo_exists(): messagebox.showerror("Genel Hata", f"Requirements oluşturulurken beklenmeyen hata: {str(e)}", parent=app.root)
+            if app.root and app.root.winfo_exists(): messagebox.showerror("Genel Hata", f"Requirements oluşturulurken beklenmeyen hata: {str(e)}", parent=app.root)
     
-    thread = threading.Thread(target=generate_thread_fn)
-    thread.daemon = True
+    thread = threading.Thread(target=generate_thread_fn, daemon=True)
     thread.start()
 
 def upgrade_pip(app):
@@ -529,8 +601,10 @@ def check_broken_packages(app):
     def check_thread_fn(): 
         try:
             app.update_status("Bozuk paketler kontrol ediliyor...")
-            result = subprocess.run([sys.executable, '-m', 'pip', 'check'], 
-                                    capture_output=True, text=True, encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0) 
+            result = safe_subprocess_run(
+                [sys.executable, '-m', 'pip', 'check'],
+                capture_output=True, text=True, encoding='utf-8'
+            )
             
             output = result.stdout.strip() if result.stdout else ""
             if result.stderr and result.stderr.strip(): 
@@ -538,32 +612,34 @@ def check_broken_packages(app):
 
             app.log_message(f"Pip check sonucu:\n{output if output else 'Çıktı yok'}")
 
-            if not app.root.winfo_exists(): return 
+            if not app.root or not app.root.winfo_exists(): return 
 
-            if result.returncode == 0 or "No broken requirements found." in output:
-                messagebox.showinfo("Sonuç", "Bozuk veya uyumsuz paket bulunamadı.", parent=app.root)
-            else: 
-                messagebox.showwarning("Uyarı", f"Bozuk veya uyumsuz paketler bulundu:\n\n{output}", parent=app.root)
-            
+            if result.returncode == 0 and not output.strip():
+                messagebox.showinfo("Pip Check", "Hiçbir kırık paket bulunamadı. Tüm paketler düzgün çalışıyor.", parent=app.root)
+            else:
+                if output.strip():
+                    messagebox.showwarning("Pip Check", f"Kırık paketler bulundu:\n\n{output}", parent=app.root)
+                else:
+                    messagebox.showinfo("Pip Check", "Check komutu tamamlandı, ama sonuç belirsiz.", parent=app.root)
+
             app.update_status("Hazır")
             
         except Exception as e:
-            error_msg = f"Paket kontrolü sırasında hata: {str(e)}"
-            app.log_message(error_msg)
-            if app.root.winfo_exists(): messagebox.showerror("Hata", error_msg, parent=app.root)
             app.update_status("Hata oluştu")
+            if app.root and app.root.winfo_exists(): messagebox.showerror("Check Hatası", f"Pip check hatası: {str(e)}", parent=app.root)
     
-    thread = threading.Thread(target=check_thread_fn)
-    thread.daemon = True
+    thread = threading.Thread(target=check_thread_fn, daemon=True)
     thread.start()
 
 def check_outdated_packages(app):
-    """Güncellenebilir paketleri kontrol et"""
+    """Eski sürümlü paketleri kontrol et"""
     def check_outdated_thread_fn(): 
         try:
-            app.update_status("Güncel olmayan paketler kontrol ediliyor...")
-            result = subprocess.run([sys.executable, '-m', 'pip', 'list', '--outdated', '--format=json'], 
-                                    capture_output=True, text=True, check=False, encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0) 
+            app.update_status("Eski sürümlü paketler kontrol ediliyor...")
+            result = safe_subprocess_run(
+                [sys.executable, '-m', 'pip', 'list', '--outdated', '--format=json'],
+                capture_output=True, text=True, check=True, encoding='utf-8'
+            )
             
             if not app.root.winfo_exists(): return 
 
@@ -619,17 +695,18 @@ def check_outdated_packages(app):
             if app.root.winfo_exists(): messagebox.showerror("Hata", error_msg, parent=app.root)
             app.update_status("Hata oluştu")
     
-    thread = threading.Thread(target=check_outdated_thread_fn)
-    thread.daemon = True
+    thread = threading.Thread(target=check_outdated_thread_fn, daemon=True)
     thread.start()
 
 def upgrade_all_packages(app):
-    """Tüm güncellenebilir paketleri güncelle"""
+    """Tüm paketleri güncelle"""
     def upgrade_all_thread_fn(): 
+        app.update_status("Güncellenebilir paketler kontrol ediliyor...")
         try:
-            app.update_status("Güncellenebilir paketler bulunuyor...")
-            result = subprocess.run([sys.executable, '-m', 'pip', 'list', '--outdated', '--format=json'], 
-                                    capture_output=True, text=True, check=False, encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+            result = safe_subprocess_run(
+                [sys.executable, '-m', 'pip', 'list', '--outdated', '--format=json'],
+                capture_output=True, text=True, check=True, encoding='utf-8'
+            )
             
             if not app.root.winfo_exists(): return
 
@@ -682,74 +759,71 @@ def upgrade_all_packages(app):
             if app.root.winfo_exists(): messagebox.showerror("Hata", error_msg, parent=app.root)
             app.update_status("Hata oluştu")
     
-    thread = threading.Thread(target=upgrade_all_thread_fn)
-    thread.daemon = True
+    thread = threading.Thread(target=upgrade_all_thread_fn, daemon=True)
     thread.start()
 
 def export_package_list(app):
     """Paket listesini dışa aktar"""
-    if not app.installed_packages: 
-        messagebox.showwarning("Uyarı", "Dışa aktarılacak yüklü paket bulunmuyor. Lütfen önce listeyi yenileyin.", parent=app.root)
-        return
-    
-    file_path = filedialog.asksaveasfilename(
-        title="Paket Listesini Kaydet",
-        defaultextension=".txt",
-        filetypes=[
-            ("Text files (requirements format)", "*.txt"),
-            ("JSON files", "*.json"),
-            ("CSV files", "*.csv"),
-            ("All files", "*.*")
-        ],
-        parent=app.root
-    )
-    
-    if file_path:
-        try:
-            freeze_result = subprocess.run([sys.executable, '-m', 'pip', 'freeze'], 
-                                            capture_output=True, text=True, check=True, encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
-            current_pkgs_freeze_list = freeze_result.stdout.strip().splitlines() 
-            
-            current_pkgs_dict = {} 
-            for line in current_pkgs_freeze_list:
-                if '==' in line:
-                    name, version = line.split('==', 1)
-                    current_pkgs_dict[name] = version
+    try:
+        file_path = filedialog.asksaveasfilename(
+            parent=app.root,
+            title="Paket Listesini Kaydet",
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+        )
+        
+        if not file_path:
+            return
+        
+        app.update_status("Paket listesi oluşturuluyor...")
+        
+        freeze_result = safe_subprocess_run(
+            [sys.executable, '-m', 'pip', 'freeze'],
+            capture_output=True, text=True, check=True, encoding='utf-8'
+        )
+        
+        current_pkgs_freeze_list = freeze_result.stdout.strip().splitlines() 
+        
+        current_pkgs_dict = {} 
+        for line in current_pkgs_freeze_list:
+            if '==' in line:
+                name, version = line.split('==', 1)
+                current_pkgs_dict[name] = version
 
-            if file_path.endswith('.json'):
-                export_data = {
-                    'export_date': datetime.now().isoformat(),
-                    'python_version': sys.version.split('\n')[0],
-                    'packages': current_pkgs_dict
-                }
-                with open(file_path, 'w', encoding='utf-8') as file:
-                    json.dump(export_data, file, indent=2, ensure_ascii=False)
-            
-            elif file_path.endswith('.csv'):
-                with open(file_path, 'w', encoding='utf-8') as file:
-                    file.write("Package Name,Version\n")
-                    for name, version in sorted(current_pkgs_dict.items()):
-                        file.write(f"{name},{version}\n")
-            
-            else: 
-                with open(file_path, 'w', encoding='utf-8') as file:
-                    file.write(f"# Python Paket Listesi (requirements.txt formatında)\n")
-                    file.write(f"# Dışa Aktarma Tarihi: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                    file.write(f"# Python Sürümü: {sys.version.splitlines()[0]}\n")
-                    file.write(f"# Toplam Paket Sayısı: {len(current_pkgs_freeze_list)}\n")
-                    file.write(f"# {'-'*50}\n\n")
-                    file.write(freeze_result.stdout) 
-            
-            app.log_message(f"Paket listesi dışa aktarıldı: {file_path}")
-            messagebox.showinfo("Başarılı", f"Paket listesi başarıyla kaydedildi:\n{file_path}", parent=app.root)
-        except subprocess.CalledProcessError as e:
-            error_msg = f"Dışa aktarma için paket listesi alınamadı (pip freeze hatası): {e.stderr}"
-            app.log_message(error_msg)
-            if app.root.winfo_exists(): messagebox.showerror("Pip Hatası", error_msg, parent=app.root)
-        except Exception as e:
-            error_msg = f"Dışa aktarma sırasında hata: {str(e)}"
-            app.log_message(error_msg)
-            if app.root.winfo_exists(): messagebox.showerror("Dosya Hatası", error_msg, parent=app.root)
+        if file_path.endswith('.json'):
+            export_data = {
+                'export_date': datetime.now().isoformat(),
+                'python_version': sys.version.split('\n')[0],
+                'packages': current_pkgs_dict
+            }
+            with open(file_path, 'w', encoding='utf-8') as file:
+                json.dump(export_data, file, indent=2, ensure_ascii=False)
+        
+        elif file_path.endswith('.csv'):
+            with open(file_path, 'w', encoding='utf-8') as file:
+                file.write("Package Name,Version\n")
+                for name, version in sorted(current_pkgs_dict.items()):
+                    file.write(f"{name},{version}\n")
+        
+        else: 
+            with open(file_path, 'w', encoding='utf-8') as file:
+                file.write(f"# Python Paket Listesi (requirements.txt formatında)\n")
+                file.write(f"# Dışa Aktarma Tarihi: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                file.write(f"# Python Sürümü: {sys.version.splitlines()[0]}\n")
+                file.write(f"# Toplam Paket Sayısı: {len(current_pkgs_freeze_list)}\n")
+                file.write(f"# {'-'*50}\n\n")
+                file.write(freeze_result.stdout) 
+        
+        app.log_message(f"Paket listesi dışa aktarıldı: {file_path}")
+        messagebox.showinfo("Başarılı", f"Paket listesi başarıyla kaydedildi:\n{file_path}", parent=app.root)
+    except subprocess.CalledProcessError as e:
+        error_msg = f"Dışa aktarma için paket listesi alınamadı (pip freeze hatası): {e.stderr}"
+        app.log_message(error_msg)
+        if app.root.winfo_exists(): messagebox.showerror("Pip Hatası", error_msg, parent=app.root)
+    except Exception as e:
+        error_msg = f"Dışa aktarma sırasında hata: {str(e)}"
+        app.log_message(error_msg)
+        if app.root.winfo_exists(): messagebox.showerror("Dosya Hatası", error_msg, parent=app.root)
 
 def install_with_options(app):
     """Gelişmiş kurulum seçenekleri ile paket kur"""
@@ -781,13 +855,12 @@ def install_with_options(app):
     
     s_options = ttk.Style(options_window) 
     s_options.configure('Options.TLabel', background='#2b2b2b', foreground='white', font=('Segoe UI', 10))
-    s_options.configure('Options.TCheckbutton', background='#2b2b2b', foreground='white', font=('Segoe UI', 9), indicatorcolor=app.accent_color) 
+    s_options.configure('Options.TCheckbutton', background='#2b2b2b', foreground='white', font=('Segoe UI', 9)) 
     s_options.map('Options.TCheckbutton',
-            background=[('active', '#404040')],
-            indicatorcolor=[('selected', app.accent_color), ('pressed', '#005a9e')])
+            background=[('active', '#404040')])
 
     s_options.configure('Options.TEntry', fieldbackground='#404040', foreground='white', insertcolor='white')
-    s_options.configure('Options.TButton', background=app.accent_color, foreground='white', padding=(8,4), font=('Segoe UI', 9))
+    s_options.configure('Options.TButton', background='#0078d4', foreground='white', padding=(8,4), font=('Segoe UI', 9))
     s_options.map('Options.TButton', background=[('active', '#106ebe')])
 
 
@@ -848,5 +921,5 @@ def install_with_options(app):
             parent_win = options_window if options_window.winfo_exists() else app.root
             messagebox.showerror("Seçenek Hatası", error_msg, parent=parent_win)
     
-    ttk.Button(button_frame_opt, text="Kur", command=do_install_package_fn, style='Options.TButton').pack(side='right', padx=5) 
-    ttk.Button(button_frame_opt, text="İptal", command=options_window.destroy, style='Options.TButton').pack(side='right', padx=5) 
+    ttk.Button(button_frame_opt, text="Kur", command=do_install_package_fn, style='Options.TButton').pack(side=RIGHT, padx=5) 
+    ttk.Button(button_frame_opt, text="İptal", command=options_window.destroy, style='Options.TButton').pack(side=RIGHT, padx=5) 

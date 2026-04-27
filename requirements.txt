@@ -1,0 +1,17 @@
+# Modern Python Pip Paket Yöneticisi Bağımlılıkları
+# Bu uygulamayı çalıştırmak için gerekli Python paketleri
+
+# Modern dark tema ve bootstrap stilleri için
+ttkbootstrap>=1.10.1
+
+# Exe dosyası oluşturmak için (opsiyonel - sadece build için)
+pyinstaller>=5.0
+pillow>=10,<11
+# Standart Python kütüphaneleri (genellikle Python ile birlikte gelir):
+# - tkinter (GUI framework)
+# - subprocess (sistem komutları çalıştırma)
+# - json (JSON veri işleme)
+# - threading (çoklu iş parçacığı)
+# - urllib (web istekleri)
+# - datetime (tarih/saat işlemleri)
+# - sys, os (sistem fonksiyonları) 
