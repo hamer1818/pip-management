@@ -13,20 +13,63 @@ import urllib.parse
 import urllib.error
 from . import utils
 
-# PyInstaller exe dosyası için subprocess ayarları
+# Subprocess constants import'u Windows için
+if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP'):
+    pass  # Already available
+else:
+    # Fallback for non-Windows systems
+    subprocess.CREATE_NEW_PROCESS_GROUP = 0x00000200
+
+# PyInstaller exe dosyası için subprocess ayarları - RESTART LOOP FIX
 def get_subprocess_args():
     """PyInstaller ile oluşturulan exe dosyası için subprocess parametrelerini döndür"""
-    if getattr(sys, 'frozen', False):
-        # Exe dosyası olarak çalışıyoruz
-        return {
-            'creationflags': subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-            'startupinfo': None
-        }
+    base_args = {}
+    
+    # Windows subprocess güvenliği - RESTART LOOP FIX
+    if os.name == 'nt':  # Windows
+        # CRITICAL: Subprocess'lerin ana exe'yi tetiklememesi için
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        
+        base_args.update({
+            'creationflags': (
+                subprocess.CREATE_NO_WINDOW | 
+                subprocess.CREATE_NEW_PROCESS_GROUP |
+                subprocess.DETACHED_PROCESS if hasattr(subprocess, 'DETACHED_PROCESS') else 0
+            ),
+            'startupinfo': startupinfo,
+            'close_fds': True,  # CRITICAL: File descriptor'ları kapat
+        })
     else:
-        # Normal Python script olarak çalışıyoruz
-        return {
-            'creationflags': subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
-        }
+        # Unix/Linux için
+        base_args.update({
+            'close_fds': True,
+            'preexec_fn': os.setsid if hasattr(os, 'setsid') else None
+        })
+    
+    # PyInstaller exe için CRITICAL düzeltmeler
+    if getattr(sys, 'frozen', False):
+        # Exe dosyası olarak çalışıyoruz - ekstra güvenlik
+        env = os.environ.copy()
+        
+        # CRITICAL: Python path'ini sadece system python'a yönlendir
+        # Bu restart loop'un ana sebeplerinden biri
+        if 'PYTHONPATH' in env:
+            del env['PYTHONPATH']  
+        
+        # PyInstaller'ın kendi path'ını çıkar
+        if 'PATH' in env:
+            paths = env['PATH'].split(os.pathsep)
+            paths = [p for p in paths if not ('_MEI' in p or 'dist' in p.lower())]
+            env['PATH'] = os.pathsep.join(paths)
+        
+        base_args.update({
+            'env': env,
+            'cwd': os.path.dirname(sys.executable) if hasattr(sys, 'frozen') else os.getcwd()
+        })
+    
+    return base_args
 
 def run_pip_command(app, command, success_msg="İşlem tamamlandı", show_output=True, callback=None):
     """Pip komutunu çalıştır ve isteğe bağlı callback çağır."""

@@ -19,38 +19,71 @@ def build_exe():
     if os.path.exists("build"):
         shutil.rmtree("build")
     
-    # PyInstaller parametreleri
+    # PyInstaller parametreleri - RESTART LOOP FIX EXTREME
     pyinstaller_args = [
         'main.py',
         '--onefile',                    # Tek dosya halinde
-        '--windowed',                   # Console penceresi gösterme
+        '--windowed',                   # Console penceresi gösterme  
         '--name=ModernPipManager',      # Exe dosya adı
         '--icon=icon.ico',              # İkon dosyası (varsa)
         '--add-data=pip_manager;pip_manager',  # pip_manager klasörünü dahil et
         '--add-data=version.py;.',      # version.py dosyasını dahil et
-        '--hidden-import=ttkbootstrap', # Gizli import'ları dahil et
-        '--hidden-import=ttkbootstrap.themes',
-        '--hidden-import=ttkbootstrap.validation',
-        '--hidden-import=tkinter',
-        '--hidden-import=tkinter.ttk',
-        '--hidden-import=tkinter.filedialog',
-        '--hidden-import=tkinter.messagebox',
+        
+        # CRITICAL: Restart loop tamamen önleme parametreleri
+        '--noupx',                      # UPX sıkıştırma kapatma (sorun yaratabilir)
+        '--strip',                      # Debug sembollerini kaldır
+        '--exclude-module=unittest',    # Gereksiz modülleri hariç tut
+        '--exclude-module=test',
+        '--exclude-module=tkinter.test',
+        '--exclude-module=lib2to3',
+        '--exclude-module=xmlrpc',
+        '--exclude-module=pydoc',
+        
+        # ANTI-RESTART: Multiprocessing modüllerini kontrollü dahil et
+        '--hidden-import=multiprocessing',
+        '--hidden-import=multiprocessing.spawn',
+        '--hidden-import=multiprocessing.util',
+        '--hidden-import=multiprocessing.pool',
+        '--hidden-import=multiprocessing.queues',
+        '--hidden-import=multiprocessing.context',
+        
+        # SUBPROCESS güvenlik import'ları
         '--hidden-import=subprocess',
         '--hidden-import=threading',
+        
+        # Ana GUI import'lar
+        '--hidden-import=ttkbootstrap', 
+        '--hidden-import=ttkbootstrap.themes',
+        '--hidden-import=ttkbootstrap.validation',
+        '--hidden-import=ttkbootstrap.constants',
+        '--hidden-import=tkinter',
+        '--hidden-import=tkinter.ttk', 
+        '--hidden-import=tkinter.filedialog',
+        '--hidden-import=tkinter.messagebox',
         '--hidden-import=json',
         '--hidden-import=urllib',
         '--hidden-import=urllib.request',
         '--hidden-import=urllib.parse',
         '--hidden-import=urllib.error',
         '--hidden-import=datetime',
-        '--hidden-import=multiprocessing',
         '--hidden-import=sys',
         '--hidden-import=os',
         '--hidden-import=pathlib',
+        '--hidden-import=tempfile',
+        
+        # Process control için
+        '--hidden-import=psutil',       # Process kontrol (opsiyonel)
+        
+        # Collect all önemli paketler
         '--collect-all=ttkbootstrap',   # ttkbootstrap'ın tüm dosyalarını dahil et
         '--collect-all=PIL',            # Pillow'un tüm dosyalarını dahil et
+        
+        # EXTREME build ayarları - restart loop önleme
         '--noconfirm',                  # Onay sorma
         '--clean',                      # Cache'i temizle
+        '--debug=imports',              # Import debug için
+        '--runtime-tmpdir=.',           # Runtime temp dir
+        '--bootloader-ignore-signals',  # Signal handling fix
     ]
     
     # İkon dosyası yoksa parametreyi kaldır
@@ -58,6 +91,7 @@ def build_exe():
         pyinstaller_args = [arg for arg in pyinstaller_args if not arg.startswith('--icon')]
     
     print("[BUILD] PyInstaller ile exe dosyasi olusturuluyor...")
+    print("[BUILD] RESTART LOOP FIX parametreleri eklendi")
     print(f"[BUILD] Parametreler: {' '.join(pyinstaller_args)}")
     
     try:
@@ -71,6 +105,7 @@ def build_exe():
             print(f"[SUCCESS] Exe dosyasi basariyla olusturuldu!")
             print(f"[INFO] Konum: {exe_path.absolute()}")
             print(f"[INFO] Boyut: {size_mb:.1f} MB")
+            print("[INFO] Restart loop fix uygulanmis durumda")
             return True
         else:
             print("[ERROR] Exe dosyasi olusturulamadi!")
